@@ -27,4 +27,4 @@ Finally, you need to set the `ENTRYPOINT` on your Dockerfile to this:
 ENTRYPOINT ["/usr/sbin/secure-entrypoint.sh"]
 ```
 
-See [https://github.com/virtru/secure-environment](https://github.com/virtru/secure-environment) for example usage.
+See [https://github.com/convox-examples/secure-env-example](https://github.com/convox-examples/secure-env-example) for example usage.
