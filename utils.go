@@ -137,7 +137,7 @@ func escapeSingleQuote(s string) string {
 	return strings.Replace(s, "'", "'\"'\"'", -1)
 }
 
-func decryptEnv(url, key string, env *[]string) error {
+func decryptEnv(url, key string, env *[]string, escape bool) error {
 	if url == "" || key == "" {
 		log.Debug("Not configured to load secrets")
 		// Intentionally do not fail. This is not required software to run. It needs to fail silent if it's not configured on an export.
@@ -193,7 +193,10 @@ func decryptEnv(url, key string, env *[]string) error {
 		splitLine := strings.Split(line, "=")
 		key := splitLine[0]
 		value := strings.Join(splitLine[1:], "=")
-		*env = append(*env, fmt.Sprintf("%s='%s'", key, escapeSingleQuote(value)))
+		if escape {
+			value = "'" + escapeSingleQuote(value) + "'"
+		}
+		*env = append(*env, fmt.Sprintf("%s=%s", key, value))
 	}
 
 	return nil
