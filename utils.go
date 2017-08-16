@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -132,4 +135,66 @@ func s3PutObject(url string, data []byte) error {
 // Escapes single quotes for bash
 func escapeSingleQuote(s string) string {
 	return strings.Replace(s, "'", "'\"'\"'", -1)
+}
+
+func decryptEnv(url, key string, env *[]string) error {
+	if url == "" || key == "" {
+		log.Debug("Not configured to load secrets")
+		// Intentionally do not fail. This is not required software to run. It needs to fail silent if it's not configured on an export.
+		return nil
+	}
+
+	log.WithFields(log.Fields{
+		"secureEnvironmentURL": url,
+	}).Debug("Attempting to load secure environment")
+
+	if key == "" {
+		log.Debug("Cannot load secrets. No SECURE_ENVIRONMENT_KEY set")
+		os.Exit(1)
+		return nil
+	}
+
+	data, err := s3GetObject(url)
+	if err != nil {
+		return err
+	}
+
+	log.Debug("Connecting to KMS")
+	cipher, err := NewCipher()
+	if err != nil {
+		return nil
+	}
+
+	// Decrypt
+	decryptedBytes, err := cipher.Decrypt(key, data)
+	if err != nil {
+		return err
+	}
+
+	// Process file and export the variables
+	decrypted := string(decryptedBytes)
+
+	decryptedLines := strings.Split(decrypted, "\n")
+
+	for lineNumber, line := range decryptedLines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			log.Debugf("Empty line: %d", lineNumber)
+			continue
+		}
+		if !envFileLineRegex.MatchString(line) {
+			log.Debugf("Invalid line: %d: %s", lineNumber, line)
+			continue
+		}
+		if line[0] == '#' {
+			log.Debug("Comment line found")
+			continue
+		}
+		splitLine := strings.Split(line, "=")
+		key := splitLine[0]
+		value := strings.Join(splitLine[1:], "=")
+		*env = append(*env, fmt.Sprintf("%s='%s'", key, escapeSingleQuote(value)))
+	}
+
+	return nil
 }
