@@ -142,7 +142,7 @@ func exportEnv(c *cli.Context) error {
 	secureEnvironmentURL := c.String("url")
 	secureEnvironmentKey := c.String("key")
 
-	env := []string{} // key='value'
+	env := os.Environ() // key='value'
 	err := decryptEnv(secureEnvironmentURL, secureEnvironmentKey, &env)
 	if err != nil {
 		return err
@@ -159,7 +159,7 @@ func execEnv(c *cli.Context) error {
 	secureEnvironmentURL := c.String("url")
 	secureEnvironmentKey := c.String("key")
 
-	env := []string{} // key='value'
+	env := os.Environ() // key='value'
 	err := decryptEnv(secureEnvironmentURL, secureEnvironmentKey, &env)
 	if err != nil {
 		return err
