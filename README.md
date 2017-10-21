@@ -4,27 +4,26 @@ Forked from [virtru/secure-environment](https://github.com/virtru/secure-environ
 
 ## Introduction
 
-This tool is intended to be used on the start up of a Docker container to securely fetch and decrypt environment variables stored in S3 and encrypted with a KMS key. The included `secure-entrypoint.sh` script can be used along with the `secure-environment` binary.
+This tool is intended to be used on the start up of a Docker container to securely fetch and decrypt environment variables stored in S3 and encrypted with a KMS key.
 
 ### How it works
 
-The `docker-entrypoint.sh` script acts as an entrypoint for the Docker container. The script then calls the `secure-environment` binary to write a sourceable shell script to stdout that contains `export`ed environment variables.
+The `secure-environment exec` command acts as an entrypoint for the Docker container including the decrypted variables in the command environment.
 
 ### Setting up the Docker container
 
-To use this with Convox, you need to set the label `convox.environment.secure=true` to true on the services you intend to secure. 
+To use this with Convox, you need to set the label `convox.environment.secure=true` to true on the services you intend to secure.
 
-On your Docker container the `secure-entrypoint.sh` in the scripts folder of this repository and the latest Linux binary of the `secure-environment` executable should be copied into your Docker image at the following locations:
+On your Docker container the latest Linux binary of the `secure-environment` executable should be copied into your Docker image at the following locations:
 
 ```
-secure-environment -> /usr/sbin/secure-environment
-secure-entrypoint -> /usr/sbin/secure-entrypoint.sh
+COPY secure-environment /usr/sbin/secure-environment
 ```
 
 Finally, you need to set the `ENTRYPOINT` on your Dockerfile to this:
 
 ```
-ENTRYPOINT ["/usr/sbin/secure-entrypoint.sh"]
+ENTRYPOINT ["/usr/sbin/secure-environment", "exec", "--"]
 ```
 
 See [https://github.com/convox-examples/secure-env-example](https://github.com/convox-examples/secure-env-example) for example usage.

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
+	"os/exec"
+	"os/signal"
+	"syscall"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -84,6 +86,12 @@ func main() {
 			Action: importEnv,
 			Flags:  flags,
 		},
+		{
+			Name:   "exec",
+			Usage:  "Run a command with decrypted env",
+			Action: execEnv,
+			Flags:  flags,
+		},
 	}
 
 	app.Run(os.Args)
@@ -133,66 +141,57 @@ func importEnv(c *cli.Context) error {
 func exportEnv(c *cli.Context) error {
 	secureEnvironmentURL := c.String("url")
 	secureEnvironmentKey := c.String("key")
-	secureEnvironmentType := c.String("env-type")
 
-	if secureEnvironmentURL == "" || secureEnvironmentKey == "" || secureEnvironmentType == "" {
-		log.Debug("Not configured to load secrets")
-		// Intentionally do not fail. This is not required software to run. It needs to fail silent if it's not configured on an export.
-		return nil
-	}
-
-	log.WithFields(log.Fields{
-		"secureEnvironmentURL": secureEnvironmentURL,
-	}).Debug("Attempting to load secure environment")
-
-	if secureEnvironmentKey == "" {
-		log.Debug("Cannot load secrets. No SECURE_ENVIRONMENT_KEY set")
-		os.Exit(1)
-		return nil
-	}
-
-	data, err := s3GetObject(secureEnvironmentURL)
+	env := os.Environ()
+	err := decryptEnv(secureEnvironmentURL, secureEnvironmentKey, &env, true)
 	if err != nil {
 		return err
 	}
 
-	log.Debug("Connecting to KMS")
-	cipher, err := NewCipher()
-	if err != nil {
-		return nil
+	for _, line := range env {
+		fmt.Printf("export %s\n", line)
 	}
 
-	// Decrypt
-	decryptedBytes, err := cipher.Decrypt(secureEnvironmentKey, data)
+	return nil
+}
+
+func execEnv(c *cli.Context) error {
+	secureEnvironmentURL := c.String("url")
+	secureEnvironmentKey := c.String("key")
+
+	env := os.Environ()
+	err := decryptEnv(secureEnvironmentURL, secureEnvironmentKey, &env, false)
 	if err != nil {
 		return err
 	}
 
-	// Process file and export the variables
-	decrypted := string(decryptedBytes)
+	args := c.Args()
+	ecmd := exec.Command(args.First(), args.Tail()...)
+	ecmd.Stdin = os.Stdin
+	ecmd.Stdout = os.Stdout
+	ecmd.Stderr = os.Stderr
+	ecmd.Env = env
 
-	decryptedLines := strings.Split(decrypted, "\n")
+	// Forward SIGINT, SIGTERM, SIGKILL to the child command
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt, os.Kill)
 
-	for lineNumber, line := range decryptedLines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			log.Debugf("Empty line: %d", lineNumber)
-			continue
+	go func() {
+		sig := <-sigChan
+		if ecmd.Process != nil {
+			ecmd.Process.Signal(sig)
 		}
-		if !envFileLineRegex.MatchString(line) {
-			log.Debugf("Invalid line: %d: %s", lineNumber, line)
-			continue
-		}
-		if line[0] == '#' {
-			log.Debug("Comment line found")
-			continue
-		}
-		splitLine := strings.Split(line, "=")
-		key := splitLine[0]
-		value := strings.Join(splitLine[1:], "=")
+	}()
 
-		fmt.Printf("export %s='%s'\n", key, escapeSingleQuote(value))
+	var waitStatus syscall.WaitStatus
+	if err := ecmd.Run(); err != nil {
+		if err != nil {
+			return err
+		}
+		if exitError, ok := err.(*exec.ExitError); ok {
+			waitStatus = exitError.Sys().(syscall.WaitStatus)
+			os.Exit(waitStatus.ExitStatus())
+		}
 	}
-
 	return nil
 }
